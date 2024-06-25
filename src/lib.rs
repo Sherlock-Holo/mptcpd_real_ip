@@ -3,7 +3,7 @@ use std::ffi::{c_int, CStr};
 use std::future::Future;
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
 use std::time::Duration;
-use std::{env, io};
+use std::{env, error, io};
 
 use libc::{sockaddr_in, sockaddr_in6, AF_INET, AF_INET6};
 use reqwest::{ClientBuilder, StatusCode};
@@ -161,7 +161,7 @@ extern "C" fn addr_add(i: *const mptcpd_interface, sa: *const sockaddr, pm: *mut
 
                 error!(%status_code, ?body, "http response status code not OK");
 
-                return Err(anyhow::anyhow!("http response status code not OK"));
+                return Err("http response status code not OK".into());
             }
 
             let body = resp
@@ -175,7 +175,7 @@ extern "C" fn addr_add(i: *const mptcpd_interface, sa: *const sockaddr, pm: *mut
                 .parse::<IpAddr>()
                 .inspect_err(|err| error!(%err, %body, "parse http body failed"))?;
 
-            Ok::<_, anyhow::Error>(ip)
+            Ok::<_, Box<dyn error::Error>>(ip)
         }
         .instrument(Span::current()),
     );
