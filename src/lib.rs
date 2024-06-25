@@ -1,8 +1,9 @@
+use std::borrow::Cow;
 use std::ffi::{c_int, CStr};
 use std::future::Future;
-use std::io;
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
 use std::time::Duration;
+use std::{env, io};
 
 use libc::{sockaddr_in, sockaddr_in6, AF_INET, AF_INET6};
 use reqwest::{ClientBuilder, StatusCode};
@@ -51,7 +52,7 @@ static OPS: mptcpd_plugin_ops = mptcpd_plugin_ops {
 #[no_mangle]
 pub static mut _mptcpd_plugin: mptcpd_plugin_desc = mptcpd_plugin_desc {
     name: NAME.as_ptr(),
-    description: c"mptcpd static ip plugin".as_ptr(),
+    description: c"mptcpd real ip plugin".as_ptr(),
     version: c"0.1.0".as_ptr(),
     priority: MPTCPD_PLUGIN_PRIORITY_DEFAULT as _,
     init: Some(init),
@@ -63,19 +64,19 @@ extern "C" fn init(_: *mut mptcpd_pm) -> c_int {
 
     unsafe {
         if !mptcpd_plugin_register_ops(NAME.as_ptr(), &OPS as *const _) {
-            error!("failed init static_ip plugin");
+            error!("failed init real_ip plugin");
 
             return -1;
         }
 
-        info!("init static_ip plugin done");
+        info!("init real_ip plugin done");
 
         0
     }
 }
 
 extern "C" fn exit(_: *mut mptcpd_pm) {
-    info!("exit static_ip plugin");
+    info!("exit real_ip plugin");
 }
 
 fn init_log() {
@@ -92,9 +93,14 @@ fn init_log() {
 extern "C" fn addr_add(i: *const mptcpd_interface, sa: *const sockaddr, pm: *mut mptcpd_pm) {
     let iface_index = unsafe { (*i).index };
 
+    let http_server = env::var("REAL_IP_HTTP_SERVER")
+        .ok()
+        .map(Cow::Owned)
+        .unwrap_or(Cow::Borrowed(GET_MY_IP));
+
     let span = info_span!(
         "get_ip",
-        http_server = GET_MY_IP,
+        %http_server,
         iface_index,
         src_addr = field::Empty
     );
@@ -120,9 +126,15 @@ extern "C" fn addr_add(i: *const mptcpd_interface, sa: *const sockaddr, pm: *mut
 
     span.record("src_addr", display(src_addr));
 
+    let timeout = env::var("REAL_IP_TIMEOUT_SECONDS")
+        .ok()
+        .and_then(|timeout| timeout.parse().ok())
+        .map(Duration::from_secs)
+        .unwrap_or(Duration::from_secs(10));
+
     let client = match ClientBuilder::new()
         .local_address(src_addr)
-        .timeout(Duration::from_secs(10))
+        .timeout(timeout)
         .build()
     {
         Err(err) => {
@@ -137,7 +149,7 @@ extern "C" fn addr_add(i: *const mptcpd_interface, sa: *const sockaddr, pm: *mut
     let ip = block_on(
         async {
             let resp = client
-                .get(GET_MY_IP)
+                .get(http_server.as_ref())
                 .send()
                 .await
                 .inspect_err(|err| error!(%err, "send get ip http request failed"))?;
