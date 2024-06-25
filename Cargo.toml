@@ -1,0 +1,20 @@
+[package]
+name = "mptcpd_real_ip"
+version = "0.1.0"
+edition = "2021"
+build = "build.rs"
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+anyhow = "1"
+libc = "0.2"
+reqwest = { version = "0.12", default-features = false, features = ["default-tls", "hickory-dns"] }
+socket2 = "0.5"
+tokio = { version = "1", features = ["rt"] }
+tracing = "0.1"
+tracing-subscriber = "0.3"
+
+[build-dependencies]
+bindgen = "0.69"
